@@ -1,0 +1,11 @@
+{
+  "name": "sample-app",
+  "description": "",
+  "version": "0.1.0",
+  "devDependencies": {
+    "serverless-prune-plugin": "^1.4.4",
+    "serverless-pseudo-parameters": "^2.5.0",
+    "serverless-python-requirements": "^5.1.0",
+    "serverless-step-functions": "^2.29.0"
+  }
+}

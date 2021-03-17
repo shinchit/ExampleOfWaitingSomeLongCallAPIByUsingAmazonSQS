@@ -1,0 +1,90 @@
+service: sample-app
+
+plugins:
+  - serverless-python-requirements
+  - serverless-prune-plugin
+  - serverless-step-functions
+  - serverless-pseudo-parameters
+
+custom:
+  defaultStage: dev
+  defaultRegion: ap-northeast-1
+  defaultProfile: default
+  enableTrigger:
+    dev: true
+    stg: false
+    prod: false
+  prune:
+    automatic: true
+    number: 3
+
+provider:
+  name: aws
+  runtime: python3.8
+  stage: ${opt:stage, self:custom.defaultStage}
+  profile: ${opt:profile, self:custom.defaultProfile}
+  memorySize: 128
+  region: ${opt:region, self:custom.defaultRegion}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - sqs:*
+      Resource:
+        - "*"
+
+functions:
+  EnQueue:
+    handler: functions/enqueue/handler.lambda_handler
+    name: "sample-app-${self:provider.stage}-enqueue"
+    description: 'SQSへのメッセージの入力。まだ稼働中のメッセージがあったら削除する'
+    environment:
+      STAGE: ${self:provider.stage}
+    package:
+      include:
+        - /functions/enqueue/**
+  CallSomeLongApi:
+    handler: functions/call-some-long-api/handler.lambda_handler
+    name: "sample-app-${self:provider.stage}-call-some-long-api"
+    description: 'レスポンスが長時間得られないこともあるAPIの呼び出し'
+    environment:
+      STAGE: ${self:provider.stage}
+    package:
+      include:
+        - /functions/call-some-long-api/**
+    timeout: 120
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [SampleAppQueue, Arn]
+          batchSize: 1
+
+stepFunctions:
+  stateMachines:
+    CallSomeLongApiOrchestrator:
+      name: "sample-app-${self:provider.stage}-call-some-long-api-orchestrator"
+      events:
+        - schedule:
+           name: "some-app-${self:provider.stage}-call-some-long-api-orchestrator"
+           description: '1分ごとに処理を実行する'
+           rate: rate(1 minute)
+           enabled: ${self:custom.enableTrigger.${self:provider.stage}}
+      definition:
+        StartAt: EnQueue
+        States:
+          EnQueue:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [EnQueueLambdaFunction, Arn]
+            InputPath: "$"
+            ResultPath: "$.body"
+            OutputPath: "$"
+            End: true
+
+resources:
+  Resources:
+    SampleAppQueue:
+      Type: "AWS::SQS::Queue"
+      Properties:
+        QueueName: "SampleAppQueue.fifo"
+        FifoQueue: true
+        VisibilityTimeout: 120
